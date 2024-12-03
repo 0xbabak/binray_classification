@@ -8,11 +8,8 @@
 #define INPUT_SIZE 784       // mnist veri seti için 28x28 piksel
 #define MAX_EPOCHS 100       // Adam ve SGD için yakınsar ancak GD için daha yüksek epoch gerekebilir
 #define LEARNING_RATE 0.01
-#define BETA1 0.9
-#define BETA2 0.999
 #define EPSILON 1e-8
-#define MAX_LINE_LENGTH 10000
-#define MAX_SAMPLES 10000 
+#define MAX_SAMPLES 1000
 
 
 // Adam Optimization Structure
@@ -66,7 +63,7 @@ void read_and_split_csv(const char* filename, Dataset** train_dataset, Dataset**
     double* all_labels = malloc(MAX_SAMPLES * sizeof(double));
     int num_samples = 0;
 
-    char line[MAX_LINE_LENGTH];
+    char line[10000];
     fgets(line, sizeof(line), file);  
 
     while (fgets(line, sizeof(line), file) && num_samples < MAX_SAMPLES) {
@@ -114,16 +111,6 @@ void read_and_split_csv(const char* filename, Dataset** train_dataset, Dataset**
 }
 
 
-void free_dataset(Dataset* dataset) {
-    if (!dataset) return;
-    for (int i = 0; i < dataset->num_samples; i++) {
-        free(dataset->data[i]);
-    }
-    free(dataset->data);
-    free(dataset->labels);
-    free(dataset);
-}
-
 // Normal dağılım ile Gradient Descent Optimizer'ı başlatır
 GDOptimizer* create_gd_optimizer(int input_count, double learning_rate) {
     GDOptimizer* optimizer = malloc(sizeof(GDOptimizer));
@@ -140,8 +127,64 @@ GDOptimizer* create_gd_optimizer(int input_count, double learning_rate) {
     return optimizer;
 }
 
+
+// Normal dağılım ile SGD Optimizer'ı başlatır
+SGDOptimizer* create_sgd_optimizer(int input_count, double learning_rate) {
+    SGDOptimizer* optimizer = malloc(sizeof(SGDOptimizer));
+    optimizer->input_count = input_count;
+    optimizer->learning_rate = learning_rate;
+    optimizer->weights = calloc(input_count + 1, sizeof(double));
+    
+    // Rastgele ağırlık başlatma
+    srand(time(NULL));
+    for (int i = 0; i < input_count + 1; i++) {
+        optimizer->weights[i] = ((double)rand() / RAND_MAX) * 0.1 - 0.05;
+    }
+    
+    return optimizer;
+}
+
+// Normal dağılım ile Adam Optimizer'ı başlatır
+AdamOptimizer* create_adam_optimizer(int input_count) {
+    AdamOptimizer* optimizer = malloc(sizeof(AdamOptimizer));
+    optimizer->input_count = input_count;
+    
+    optimizer->weights = calloc(input_count + 1, sizeof(double));
+    optimizer->m = calloc(input_count + 1, sizeof(double));
+    optimizer->v = calloc(input_count + 1, sizeof(double));
+    
+    // Rastgele ağırlık başlatma
+    srand(time(NULL));
+    for (int i = 0; i < input_count + 1; i++) {
+        optimizer->weights[i] = ((double)rand() / RAND_MAX) * 0.1 - 0.05;
+    }
+    
+    return optimizer;
+}
+
 // Ağırlıkların girişlerle (veri seti) çarpımının tanh'ını döndürerek çıktıyı tahmin eder
 double predict_gd(GDOptimizer* optimizer, double* input) {
+    double weighted_sum = optimizer->weights[0];  // Bias term
+    
+    for (int i = 0; i < optimizer->input_count; i++) {
+        weighted_sum += optimizer->weights[i + 1] * input[i];
+    }
+    
+    return tanh(weighted_sum);
+}
+
+double predict_sgd(SGDOptimizer* optimizer, double* input) {
+    double weighted_sum = optimizer->weights[0];  
+    
+    for (int i = 0; i < optimizer->input_count; i++) {
+        weighted_sum += optimizer->weights[i + 1] * input[i];
+    }
+    
+    return tanh(weighted_sum);
+}
+
+// Tahmin
+double predict(AdamOptimizer* optimizer, double* input) {
     double weighted_sum = optimizer->weights[0];  // Bias term
     
     for (int i = 0; i < optimizer->input_count; i++) {
@@ -232,85 +275,6 @@ void train_gd(GDOptimizer* optimizer, Dataset* dataset, const char* csv_filename
     fclose(file2);
 }
 
-
-void free_gd_optimizer(GDOptimizer* optimizer) {
-    if (!optimizer) return;
-    free(optimizer->weights);
-    free(optimizer);
-}
-
-// GD ağırlıklarını kullanarak modeli test eder
-void test_model_gd(GDOptimizer* optimizer, Dataset* test_dataset) {
-    double total_accuracy = 0.0;
-    double total_error = 0.0;
-
-    for (int i = 0; i < test_dataset->num_samples; i++) {
-        double prediction = predict_gd(optimizer, test_dataset->data[i]);
-        double true_label = test_dataset->labels[i];
-
-        double error = true_label - prediction;
-        total_error += error * error;
-
-        total_accuracy += (fabs(round(prediction) - true_label) < 0.5) ? 1.0 : 0.0;
-    }
-
-    printf("\nTest Results (GD):\n");
-    printf("Test Error: %f\n", total_error / test_dataset->num_samples);
-    printf("Test Accuracy: %f%%\n", (total_accuracy / test_dataset->num_samples) * 100);
-}
-
-// Normal dağılım ile Adam Optimizer'ı başlatır
-AdamOptimizer* create_adam_optimizer(int input_count) {
-    AdamOptimizer* optimizer = malloc(sizeof(AdamOptimizer));
-    optimizer->input_count = input_count;
-    
-    optimizer->weights = calloc(input_count + 1, sizeof(double));
-    optimizer->m = calloc(input_count + 1, sizeof(double));
-    optimizer->v = calloc(input_count + 1, sizeof(double));
-    
-    // Rastgele ağırlık başlatma
-    srand(time(NULL));
-    for (int i = 0; i < input_count + 1; i++) {
-        optimizer->weights[i] = ((double)rand() / RAND_MAX) * 0.1 - 0.05;
-    }
-    
-    return optimizer;
-}
-
-void free_optimizer(AdamOptimizer* optimizer) {
-    if (!optimizer) return;
-    free(optimizer->weights);
-    free(optimizer->m);
-    free(optimizer->v);
-    free(optimizer);
-}
-
-// Normal dağılım ile SGD Optimizer'ı başlatır
-SGDOptimizer* create_sgd_optimizer(int input_count, double learning_rate) {
-    SGDOptimizer* optimizer = malloc(sizeof(SGDOptimizer));
-    optimizer->input_count = input_count;
-    optimizer->learning_rate = learning_rate;
-    optimizer->weights = calloc(input_count + 1, sizeof(double));
-    
-    // Rastgele ağırlık başlatma
-    srand(time(NULL));
-    for (int i = 0; i < input_count + 1; i++) {
-        optimizer->weights[i] = ((double)rand() / RAND_MAX) * 0.1 - 0.05;
-    }
-    
-    return optimizer;
-}
-
-
-double predict_sgd(SGDOptimizer* optimizer, double* input) {
-    double weighted_sum = optimizer->weights[0];  
-    
-    for (int i = 0; i < optimizer->input_count; i++) {
-        weighted_sum += optimizer->weights[i + 1] * input[i];
-    }
-    
-    return tanh(weighted_sum);
-}
  
 void train_sgd(SGDOptimizer* optimizer, Dataset* dataset, const char* csv_filename, const char* csv_filename2, int iterations) {
     
@@ -407,26 +371,8 @@ void train_sgd(SGDOptimizer* optimizer, Dataset* dataset, const char* csv_filena
     fclose(file2);
 }
 
-
-void free_sgd_optimizer(SGDOptimizer* optimizer) {
-    if (!optimizer) return;
-    free(optimizer->weights);
-    free(optimizer);
-}
-
-// Tahmin
-double predict(AdamOptimizer* optimizer, double* input) {
-    double weighted_sum = optimizer->weights[0];  // Bias term
-    
-    for (int i = 0; i < optimizer->input_count; i++) {
-        weighted_sum += optimizer->weights[i + 1] * input[i];
-    }
-    
-    return tanh(weighted_sum);
-}
-
 // Adam kullanarak eğitir: Adam formülü kullanılarak optimize edilmiştir
-void train_adam(AdamOptimizer* optimizer, Dataset* dataset, const char* csv_filename, const char* csv_filename2, int iterations) {
+void train_adam(AdamOptimizer* optimizer, Dataset* dataset, const char* csv_filename, const char* csv_filename2, int iterations, int batch_size) {
     int t = 0;
 
     FILE* file = fopen(csv_filename, "w");
@@ -450,7 +396,6 @@ void train_adam(AdamOptimizer* optimizer, Dataset* dataset, const char* csv_file
     fprintf(file2, "Epoch,Time,Loss\n");
     double cumulative_time = 0.0;
 
-    
     double initial_loss = 0.0;
     for (int i = 0; i < dataset->num_samples; i++) {
         double prediction = predict(optimizer, dataset->data[i]);
@@ -469,6 +414,7 @@ void train_adam(AdamOptimizer* optimizer, Dataset* dataset, const char* csv_file
 
         double total_error = 0.0;
 
+        // Shuffle the dataset
         for (int i = 0; i < dataset->num_samples; i++) {
             int j = rand() % dataset->num_samples;
 
@@ -481,28 +427,44 @@ void train_adam(AdamOptimizer* optimizer, Dataset* dataset, const char* csv_file
             dataset->labels[j] = temp_label;
         }
 
-        for (int i = 0; i < dataset->num_samples; i++) {
-            t++;
+        // Process dataset in mini-batches
+        for (int i = 0; i < dataset->num_samples; i += batch_size) {
+            int batch_end = (i + batch_size > dataset->num_samples) ? dataset->num_samples : i + batch_size;
 
-            double prediction = predict(optimizer, dataset->data[i]);
-            double true_label = dataset->labels[i];
+            // Initialize gradients for the batch
+            double* grad_batch = (double*)calloc(optimizer->input_count + 1, sizeof(double));
 
-            double error = true_label - prediction;
-            total_error += error * error;
+            for (int j = i; j < batch_end; j++) {
+                t++;
 
-            double gradient = error * (1 - prediction * prediction);  
+                double prediction = predict(optimizer, dataset->data[j]);
+                double true_label = dataset->labels[j];
 
-            for (int j = 0; j < optimizer->input_count + 1; j++) {
-                double grad = (j == 0) ? gradient : gradient * dataset->data[i][j - 1];
+                double error = true_label - prediction;
+                total_error += error * error;
 
-                optimizer->m[j] = BETA1 * optimizer->m[j] + (1 - BETA1) * grad;
-                optimizer->v[j] = BETA2 * optimizer->v[j] + (1 - BETA2) * grad * grad;
+                double gradient = error * (1 - prediction * prediction);
 
-                double m_hat = optimizer->m[j] / (1 - pow(BETA1, t));
-                double v_hat = optimizer->v[j] / (1 - pow(BETA2, t));
-
-                optimizer->weights[j] += LEARNING_RATE * m_hat / (sqrt(v_hat) + EPSILON);
+                for (int k = 0; k < optimizer->input_count + 1; k++) {
+                    double grad = (k == 0) ? gradient : gradient * dataset->data[j][k - 1];
+                    grad_batch[k] += grad;  // Accumulate gradient for the batch
+                }
             }
+
+            // Update weights after processing the mini-batch
+            for (int k = 0; k < optimizer->input_count + 1; k++) {
+                grad_batch[k] /= (batch_end - i);  // Average gradient over the batch
+
+                optimizer->m[k] = 0.9 * optimizer->m[k] + (1 - 0.9) * grad_batch[k];
+                optimizer->v[k] = 0.999 * optimizer->v[k] + (1 - 0.999) * grad_batch[k] * grad_batch[k];
+
+                double m_hat = optimizer->m[k] / (1 - pow(0.9, t));
+                double v_hat = optimizer->v[k] / (1 - pow(0.999, t));
+
+                optimizer->weights[k] += LEARNING_RATE * m_hat / (sqrt(v_hat) + EPSILON);
+            }
+
+            free(grad_batch);  // Free allocated memory for batch gradients
         }
 
         clock_t end_time = clock();
@@ -566,7 +528,55 @@ void test_model_sgd(SGDOptimizer* optimizer, Dataset* test_dataset) {
            (total_accuracy / test_dataset->num_samples) * 100);
 }
 
+// GD ağırlıklarını kullanarak modeli test eder
+void test_model_gd(GDOptimizer* optimizer, Dataset* test_dataset) {
+    double total_accuracy = 0.0;
+    double total_error = 0.0;
 
+    for (int i = 0; i < test_dataset->num_samples; i++) {
+        double prediction = predict_gd(optimizer, test_dataset->data[i]);
+        double true_label = test_dataset->labels[i];
+
+        double error = true_label - prediction;
+        total_error += error * error;
+
+        total_accuracy += (fabs(round(prediction) - true_label) < 0.5) ? 1.0 : 0.0;
+    }
+
+    printf("\nTest Results (GD):\n");
+    printf("Test Error: %f\n", total_error / test_dataset->num_samples);
+    printf("Test Accuracy: %f%%\n", (total_accuracy / test_dataset->num_samples) * 100);
+}
+
+void free_gd_optimizer(GDOptimizer* optimizer) {
+    if (!optimizer) return;
+    free(optimizer->weights);
+    free(optimizer);
+}
+
+void free_sgd_optimizer(SGDOptimizer* optimizer) {
+    if (!optimizer) return;
+    free(optimizer->weights);
+    free(optimizer);
+}
+
+void free_optimizer(AdamOptimizer* optimizer) {
+    if (!optimizer) return;
+    free(optimizer->weights);
+    free(optimizer->m);
+    free(optimizer->v);
+    free(optimizer);
+}
+
+void free_dataset(Dataset* dataset) {
+    if (!dataset) return;
+    for (int i = 0; i < dataset->num_samples; i++) {
+        free(dataset->data[i]);
+    }
+    free(dataset->data);
+    free(dataset->labels);
+    free(dataset);
+}
 
 int main() {
     Dataset* train_dataset;
@@ -590,7 +600,7 @@ int main() {
     AdamOptimizer* adam_optimizer = create_adam_optimizer(INPUT_SIZE);
 
     printf("Adam training:\n");
-    train_adam(adam_optimizer, train_dataset, "weights_log_adam.csv", "training_log_adam.csv", MAX_EPOCHS);
+    train_adam(adam_optimizer, train_dataset, "weights_log_adam.csv", "training_log_adam.csv", MAX_EPOCHS, 32);
 
     test_model(adam_optimizer, test_dataset);
 
